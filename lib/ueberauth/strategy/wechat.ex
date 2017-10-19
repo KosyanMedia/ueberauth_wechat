@@ -68,9 +68,10 @@ defmodule Ueberauth.Strategy.Wechat do
 
   Deafult is "snsapi_userinfo"
   """
-  use Ueberauth.Strategy, uid_field: :openid,
-                          default_scope: "snsapi_userinfo",
-                          oauth2_module: Ueberauth.Strategy.Wechat.OAuth
+  use Ueberauth.Strategy,
+    uid_field: :openid,
+    default_scope: "snsapi_userinfo",
+    oauth2_module: Ueberauth.Strategy.Wechat.OAuth
 
   alias Ueberauth.Auth.Info
   alias Ueberauth.Auth.Credentials
@@ -100,7 +101,7 @@ defmodule Ueberauth.Strategy.Wechat do
   Handles the callback from Wechat. When there is a failure from Wechat the failure is included in the
   `ueberauth_failure` struct. Otherwise the information returned from Wechat is returned in the `Ueberauth.Auth` struct.
   """
-  def handle_callback!(%Plug.Conn{ params: %{ "code" => code } } = conn) do
+  def handle_callback!(%Plug.Conn{params: %{"code" => code}} = conn) do
     module = option(conn, :oauth2_module)
     token = apply(module, :get_token!, [[code: code]])
 
@@ -109,6 +110,11 @@ defmodule Ueberauth.Strategy.Wechat do
     else
       fetch_user(conn, token)
     end
+  end
+
+  def handle_callback!(%Plug.Conn{params: %{"access_token" => access_token, "openid" => openid}} = conn) do
+    token = OAuth2.AccessToken.new(%{"access_token" => access_token, "openid" => openid})
+    fetch_user(conn, token)
   end
 
   @doc false
@@ -129,7 +135,8 @@ defmodule Ueberauth.Strategy.Wechat do
   Fetches the uid field from the Wechat response. This defaults to the option `uid_field` which in-turn defaults to `openid`
   """
   def uid(conn) do
-    conn.private.wechat_user[option(conn, :uid_field) |> to_string]
+    conn.private.wechat_user[option(conn, :uid_field)
+                             |> to_string]
   end
 
   @doc """
@@ -138,7 +145,7 @@ defmodule Ueberauth.Strategy.Wechat do
   def credentials(conn) do
     token = conn.private.wechat_token
     scopes = (token.other_params["scope"] || "")
-    |> String.split(",")
+             |> String.split(",")
 
     %Credentials{
       token: token.access_token,
@@ -176,14 +183,25 @@ defmodule Ueberauth.Strategy.Wechat do
 
   defp fetch_user(conn, token) do
     conn = put_private(conn, :wechat_token, token)
-    fetch_user_url = "/userinfo?access_token=#{token.access_token}&openid=#{token.openid}"
-    case Ueberauth.Strategy.Wechat.OAuth.get(token, fetch_user_url) do
-      { :ok, %OAuth2.Response{status_code: 401, body: _body}} ->
+    url = "/userinfo?access_token=#{token.access_token}&openid=#{token.other_params["openid"]}"
+    case Ueberauth.Strategy.Wechat.OAuth.get(token, url) do
+      {:ok, %OAuth2.Response{status_code: 401, body: _body}} ->
         set_errors!(conn, [error("token", "unauthorized")])
-      { :ok, %OAuth2.Response{status_code: status_code, body: user} } when status_code in 200..399 ->
-        put_private(conn, :wechat_user, user)
-      { :error, %OAuth2.Error{reason: reason} } ->
+      {:ok, %OAuth2.Response{status_code: status_code, body: body}} when status_code in 200..399 ->
+        parse_body(conn, body)
+      {:error, %OAuth2.Error{reason: reason}} ->
         set_errors!(conn, [error("OAuth2", reason)])
+    end
+  end
+
+  defp parse_body(conn, body) do
+    case Poison.decode(body) do
+      {:ok, %{"errmsg" => errmsg}} ->
+        set_errors!(conn, [error("auth", errmsg)])
+      {:ok, user} ->
+        put_private(conn, :wechat_user, user)
+      {:error, _} ->
+        set_errors!(conn, [error("wechat", "can't parse response")])
     end
   end
 

@@ -69,9 +69,9 @@ defmodule Ueberauth.Strategy.Wechat do
   Deafult is "snsapi_userinfo"
   """
   use Ueberauth.Strategy,
-      uid_field: :openid,
-      default_scope: "snsapi_userinfo",
-      oauth2_module: Ueberauth.Strategy.Wechat.OAuth
+    uid_field: :openid,
+    default_scope: "snsapi_userinfo",
+    oauth2_module: Ueberauth.Strategy.Wechat.OAuth
 
   alias Ueberauth.Auth.Info
   alias Ueberauth.Auth.Credentials
@@ -101,13 +101,7 @@ defmodule Ueberauth.Strategy.Wechat do
   Handles the callback from Wechat. When there is a failure from Wechat the failure is included in the
   `ueberauth_failure` struct. Otherwise the information returned from Wechat is returned in the `Ueberauth.Auth` struct.
   """
-  def handle_callback!(
-        %Plug.Conn{
-          params: %{
-            "code" => code
-          }
-        } = conn
-      ) do
+  def handle_callback!(%Plug.Conn{params: %{"code" => code}} = conn) do
     module = option(conn, :oauth2_module)
     token = apply(module, :get_token!, [[code: code]])
 
@@ -118,14 +112,7 @@ defmodule Ueberauth.Strategy.Wechat do
     end
   end
 
-  def handle_callback!(
-        %Plug.Conn{
-          params: %{
-            "access_token" => access_token,
-            "openid" => openid
-          }
-        } = conn
-      ) do
+  def handle_callback!(%Plug.Conn{params: %{"access_token" => access_token, "openid" => openid}} = conn) do
     token = OAuth2.AccessToken.new(%{"access_token" => access_token, "openid" => openid})
     fetch_user(conn, token)
   end
